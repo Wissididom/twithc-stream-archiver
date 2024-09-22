@@ -1,0 +1,3 @@
+twitch event verify-subscription cheer -F http://localhost:1337 -s TestSecret
+twitch event trigger stream.online -F http://localhost:1337 -t 636874779 -s TestSecret
+twitch event trigger stream.offline -F http://localhost:1337 -t 636874779 -s TestSecret
