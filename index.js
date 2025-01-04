@@ -6,7 +6,15 @@ import { Streamlink } from "@filiptypjeu/streamlink";
 import fs from "fs";
 import path from "path";
 
-import { getUser, getStream, convertDate } from "./utils.js";
+import {
+  getUserById,
+  getUserByLogin,
+  getStreams,
+  convertDate,
+  getSubscriptions,
+  registerStreamOnlineEvent,
+  registerStreamOfflineEvent,
+} from "./utils.js";
 
 const app = express();
 
@@ -53,7 +61,6 @@ async function getToken() {
 }
 
 async function runStreamlink(login, output) {
-  login = "sery_bot";
   console.log(`Running Streamlink for channel ${login}`);
   var sl = new Streamlink(`https://twitch.tv/${login}`).output(output).begin();
   return sl;
@@ -67,7 +74,82 @@ app.use(
   }),
 );
 
-app.get("/", (req, res) => res.send("Twitch EventSub Webhook Endpoint"));
+const auth = (req, res, next) => {
+  if (req.query.authKey && req.query.authKey == process.env.AUTHORIZATION_KEY) {
+    next();
+  } else {
+    res.send("Invalid authorization code");
+  }
+};
+
+app.use("/", auth, express.static("public"));
+
+app.get("/get-subscriptions", auth, async (req, res) => {
+  await getToken();
+  const subscriptions = await getSubscriptions(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+  );
+  res
+    .set("Content-Type", "application/json")
+    .status(200)
+    .send(JSON.stringify(subscriptions));
+});
+
+app.get("/get-user-by-login/:broacasterLogin", auth, async (req, res) => {
+  await getToken();
+  const user = await getUserByLogin(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+    req.params.broadcasterLogin,
+  );
+  res
+    .set("Content-Type", "application/json")
+    .status(200)
+    .send(JSON.stringify(user));
+});
+
+app.get("/subscribe-online/:broacasterId", auth, async (req, res) => {
+  await getToken();
+  const eventSubApiResponse = await registerStreamOnlineEvent(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+    req.params.broadcasterId,
+  );
+  res
+    .set("Content-Type", "application/json")
+    .status(200)
+    .send(JSON.stringify(eventSubApiResponse));
+});
+
+app.get("/subscribe-offline/:broacasterId", auth, async (req, res) => {
+  await getToken();
+  const eventSubApiResponse = await registerStreamOfflineEvent(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+    req.params.broadcasterId,
+  );
+  res
+    .set("Content-Type", "application/json")
+    .status(200)
+    .send(JSON.stringify(eventSubApiResponse));
+});
+
+app.get("/get-streams/:broadcasterId/", auth, async (req, res) => {
+  let user = await getUserById(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+    req.params.broadcasterId,
+  );
+  user.stream = await getStream(
+    process.env.TWITCH_CLIENT_ID,
+    token.access_token,
+    notification.event.broadcaster_user_id,
+  );
+  res.redirect(
+    `http://${req.headers.host}/media/${req.params.broadcasterId}/${req.params.startedAt}.mkv?authKey=${req.query.authKey}`,
+  );
+});
 
 app.post("/", async (req, res) => {
   let secret = process.env.EVENTSUB_SECRET;
@@ -95,19 +177,19 @@ app.post("/", async (req, res) => {
           if (stream) {
             fs.writeFileSync(
               path.join(
-                process.env.STORAGE_PATH,
-                notification.event.broadcaster_user_login,
-                convertDate(new Date(stream.started_at)) + ".json",
+                "./public/media",
+                notification.event.broadcaster_user_id,
+                `${convertDate(new Date(stream.started_at))}.json`,
               ),
+              JSON.stringify(stream, null, 4),
             );
           }
           runStreamlink(
             notification.event.broadcaster_user_login,
             path.join(
-              process.env.STORAGE_PATH,
-              notification.event.broadcaster_user_login,
-              convertDate(stream ? new Date(stream.started_at) : new Date()) +
-                ".mkv",
+              "./public/media",
+              notification.event.broadcaster_user_id,
+              `${convertDate(stream ? new Date(stream.started_at) : new Date())}.mkv`,
             ),
           );
           console.log(
